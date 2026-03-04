@@ -1,0 +1,24 @@
+
+{
+  "name": "experiment-4.3-concurrent-ticket-booking",
+  "version": "1.0.0",
+  "description": "Concurrent ticket booking system with Redis seat locking",
+  "main": "booking-system.js",
+  "scripts": {
+    "start": "node booking-system.js",
+    "dev": "nodemon booking-system.js",
+    "test:load": "artillery run artillery.yml"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "redis": "^4.7.0"
+  },
+  "devDependencies": {
+    "artillery": "^1.7.9",
+    "nodemon": "^3.1.10"
+  }
+}

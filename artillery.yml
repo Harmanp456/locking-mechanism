@@ -1,0 +1,11 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - duration: 20
+      arrivalRate: 40
+scenarios:
+  - name: "Concurrent bookings"
+    flow:
+      - post:
+          url: "/api/book"
+          json: {}
