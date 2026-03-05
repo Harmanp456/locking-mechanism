@@ -4,9 +4,11 @@ if (process.env.NODE_ENV !== 'production') {
 
 const express = require('express');
 const { createClient } = require('redis');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = Number(process.env.PORT || 3000);
 const REDIS_URL = process.env.REDIS_URL || '';
@@ -14,29 +16,38 @@ const TOTAL_SEATS = Number(process.env.TOTAL_SEATS || 100);
 const LOCK_KEY = 'ticket:lock';
 const LOCK_TTL_MS = 5000;
 let redisErrorLogged = false;
-
-if (!REDIS_URL) {
-  console.error('Missing REDIS_URL environment variable.');
-  console.error('Local example: REDIS_URL=redis://127.0.0.1:6379');
-  console.error('Render example: use your managed Redis Internal/External URL.');
-  process.exit(1);
-}
+let usingRedis = Boolean(REDIS_URL);
+let memoryRemaining = TOTAL_SEATS;
+let memoryLock = {
+  owner: null,
+  expiresAt: 0,
+};
 
 const redis = createClient({
-  url: REDIS_URL,
+  url: REDIS_URL || 'redis://127.0.0.1:6379',
   socket: {
     reconnectStrategy: () => false,
   },
 });
 
 redis.on('error', (err) => {
-  if (!redisErrorLogged) {
+  if (!redisErrorLogged && usingRedis) {
     console.error(`Redis error: ${err.message}`);
     redisErrorLogged = true;
   }
 });
 
 async function acquireLock(lockId) {
+  if (!usingRedis) {
+    const now = Date.now();
+    if (!memoryLock.owner || memoryLock.expiresAt <= now) {
+      memoryLock.owner = lockId;
+      memoryLock.expiresAt = now + LOCK_TTL_MS;
+      return 'OK';
+    }
+    return null;
+  }
+
   return redis.set(LOCK_KEY, lockId, {
     NX: true,
     PX: LOCK_TTL_MS,
@@ -44,6 +55,15 @@ async function acquireLock(lockId) {
 }
 
 async function releaseLock(lockId) {
+  if (!usingRedis) {
+    if (memoryLock.owner === lockId) {
+      memoryLock.owner = null;
+      memoryLock.expiresAt = 0;
+      return 1;
+    }
+    return 0;
+  }
+
   const releaseLua = `
     if redis.call("GET", KEYS[1]) == ARGV[1] then
       return redis.call("DEL", KEYS[1])
@@ -59,17 +79,50 @@ async function releaseLock(lockId) {
 }
 
 async function initInventory() {
+  if (!usingRedis) {
+    memoryRemaining = TOTAL_SEATS;
+    return;
+  }
+
   const exists = await redis.exists('ticket:remaining');
   if (!exists) {
     await redis.set('ticket:remaining', TOTAL_SEATS.toString());
   }
 }
 
+async function getRemaining() {
+  if (!usingRedis) {
+    return memoryRemaining;
+  }
+
+  return Number(await redis.get('ticket:remaining'));
+}
+
+async function decrementRemaining() {
+  if (!usingRedis) {
+    memoryRemaining -= 1;
+    return memoryRemaining;
+  }
+
+  return redis.decr('ticket:remaining');
+}
+
+async function resetRemaining() {
+  if (!usingRedis) {
+    memoryRemaining = TOTAL_SEATS;
+    return TOTAL_SEATS;
+  }
+
+  await redis.set('ticket:remaining', TOTAL_SEATS.toString());
+  return TOTAL_SEATS;
+}
+
 app.get('/api/status', async (_req, res) => {
   try {
-    const remaining = Number(await redis.get('ticket:remaining'));
+    const remaining = await getRemaining();
     return res.status(200).json({
       service: 'Concurrent Ticket Booking System',
+      storage: usingRedis ? 'redis' : 'memory',
       totalSeats: TOTAL_SEATS,
       remaining,
       sold: TOTAL_SEATS - remaining,
@@ -80,10 +133,7 @@ app.get('/api/status', async (_req, res) => {
 });
 
 app.get('/', (_req, res) => {
-  return res.status(200).json({
-    message: 'Booking service is live',
-    endpoints: ['/api/status', '/api/book', '/api/reset'],
-  });
+  return res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 async function handleBook(_req, res) {
@@ -94,7 +144,7 @@ async function handleBook(_req, res) {
 
     if (lockResult === 'OK') {
       try {
-        const remaining = Number(await redis.get('ticket:remaining'));
+        const remaining = await getRemaining();
 
         if (remaining <= 0) {
           return res.status(409).json({
@@ -104,7 +154,7 @@ async function handleBook(_req, res) {
           });
         }
 
-        const newRemaining = await redis.decr('ticket:remaining');
+        const newRemaining = await decrementRemaining();
         const bookingId = Date.now();
 
         return res.status(200).json({
@@ -131,11 +181,11 @@ app.get('/api/book', handleBook);
 
 app.post('/api/reset', async (_req, res) => {
   try {
-    await redis.set('ticket:remaining', TOTAL_SEATS.toString());
+    const remaining = await resetRemaining();
     return res.status(200).json({
       success: true,
       message: 'Inventory reset complete',
-      remaining: TOTAL_SEATS,
+      remaining,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -143,18 +193,25 @@ app.post('/api/reset', async (_req, res) => {
 });
 
 (async () => {
-  try {
-    await redis.connect();
-    await initInventory();
-  } catch (error) {
-    console.error('Unable to connect to Redis.');
-    console.error(`Configured URL: ${REDIS_URL}`);
-    console.error('Start Redis and retry. Example (Docker): docker run --name redis-lab -p 6379:6379 -d redis');
-    process.exit(1);
+  if (REDIS_URL) {
+    try {
+      await redis.connect();
+      usingRedis = true;
+    } catch (error) {
+      usingRedis = false;
+      console.warn('Redis unavailable. Falling back to in-memory storage.');
+      console.warn(`Configured URL: ${REDIS_URL}`);
+    }
+  } else {
+    usingRedis = false;
+    console.warn('REDIS_URL not set. Running with in-memory storage.');
   }
+
+  await initInventory();
 
   app.listen(PORT, () => {
     console.log(`node booking-system.js`);
     console.log(`Booking system running on port ${PORT}`);
+    console.log(`Storage mode: ${usingRedis ? 'redis' : 'memory'}`);
   });
 })();

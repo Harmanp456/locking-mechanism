@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticket Booking</title>
+    <style>
+      :root {
+        font-family: Arial, Helvetica, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f6f7fb;
+      }
+      .card {
+        max-width: 680px;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+      }
+      p {
+        margin-top: 0;
+        color: #4b5563;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 16px 0;
+      }
+      button {
+        border: 1px solid #d1d5db;
+        background: #111827;
+        color: #fff;
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #374151;
+      }
+      pre {
+        margin: 0;
+        padding: 12px;
+        background: #0b1020;
+        color: #e5e7eb;
+        border-radius: 8px;
+        min-height: 150px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Concurrent Ticket Booking</h1>
+      <p>Use the buttons below to test the booking API from your browser.</p>
+
+      <div class="row">
+        <button id="statusBtn" class="secondary">Check Status</button>
+        <button id="bookBtn">Book 1 Seat</button>
+        <button id="resetBtn" class="secondary">Reset Inventory</button>
+      </div>
+
+      <pre id="output">Ready.</pre>
+    </main>
+
+    <script>
+      const output = document.getElementById('output');
+
+      const show = (label, data) => {
+        output.textContent = `${label}\n\n${JSON.stringify(data, null, 2)}`;
+      };
+
+      async function callApi(label, url, options) {
+        try {
+          const response = await fetch(url, options);
+          const data = await response.json();
+          show(`${label} (HTTP ${response.status})`, data);
+        } catch (error) {
+          show(label, { error: error.message });
+        }
+      }
+
+      document.getElementById('statusBtn').addEventListener('click', () => {
+        callApi('Status', '/api/status', { method: 'GET' });
+      });
+
+      document.getElementById('bookBtn').addEventListener('click', () => {
+        callApi('Book', '/api/book', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+      });
+
+      document.getElementById('resetBtn').addEventListener('click', () => {
+        callApi('Reset', '/api/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+      });
+    </script>
+  </body>
+</html>
