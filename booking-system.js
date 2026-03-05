@@ -86,7 +86,7 @@ app.get('/', (_req, res) => {
   });
 });
 
-app.post('/api/book', async (_req, res) => {
+async function handleBook(_req, res) {
   const lockId = `lock-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
   for (let attempt = 1; attempt <= 20; attempt += 1) {
@@ -124,7 +124,10 @@ app.post('/api/book', async (_req, res) => {
     success: false,
     message: 'Could not acquire lock. Please retry.',
   });
-});
+}
+
+app.post('/api/book', handleBook);
+app.get('/api/book', handleBook);
 
 app.post('/api/reset', async (_req, res) => {
   try {
