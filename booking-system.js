@@ -1,4 +1,6 @@
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 const express = require('express');
 const { createClient } = require('redis');
@@ -7,11 +9,18 @@ const app = express();
 app.use(express.json());
 
 const PORT = Number(process.env.PORT || 3000);
-const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const REDIS_URL = process.env.REDIS_URL || '';
 const TOTAL_SEATS = Number(process.env.TOTAL_SEATS || 100);
 const LOCK_KEY = 'ticket:lock';
 const LOCK_TTL_MS = 5000;
 let redisErrorLogged = false;
+
+if (!REDIS_URL) {
+  console.error('Missing REDIS_URL environment variable.');
+  console.error('Local example: REDIS_URL=redis://127.0.0.1:6379');
+  console.error('Render example: use your managed Redis Internal/External URL.');
+  process.exit(1);
+}
 
 const redis = createClient({
   url: REDIS_URL,
