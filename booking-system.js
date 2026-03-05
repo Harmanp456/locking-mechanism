@@ -79,6 +79,13 @@ app.get('/api/status', async (_req, res) => {
   }
 });
 
+app.get('/', (_req, res) => {
+  return res.status(200).json({
+    message: 'Booking service is live',
+    endpoints: ['/api/status', '/api/book', '/api/reset'],
+  });
+});
+
 app.post('/api/book', async (_req, res) => {
   const lockId = `lock-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
